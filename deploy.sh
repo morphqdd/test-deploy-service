@@ -3,33 +3,29 @@ set -e
 
 SERVICE=test-deploy-service
 BINARY=/usr/local/bin/$SERVICE
+PIDFILE=/var/run/$SERVICE.pid
+LOGFILE=/var/log/$SERVICE.log
 PORT=${PORT:-8080}
 
 echo "==> building..."
 go build -o $BINARY .
 
-echo "==> installing systemd unit..."
-cat > /etc/systemd/system/$SERVICE.service <<EOF
-[Unit]
-Description=Test Deploy Service
-After=network.target
+echo "==> stopping old instance..."
+if [ -f $PIDFILE ]; then
+  kill $(cat $PIDFILE) 2>/dev/null || true
+  rm -f $PIDFILE
+fi
+pkill -f $SERVICE 2>/dev/null || true
+sleep 1
 
-[Service]
-ExecStart=$BINARY
-Restart=always
-RestartSec=3
-Environment=PORT=$PORT
-Environment=ECHO_TEXT=hello from syncswarm deploy
-StandardOutput=journal
-StandardError=journal
+echo "==> starting..."
+PORT=$PORT ECHO_TEXT="hello from syncswarm" nohup $BINARY >> $LOGFILE 2>&1 &
+echo $! > $PIDFILE
 
-[Install]
-WantedBy=multi-user.target
-EOF
-
-systemctl daemon-reload
-systemctl enable $SERVICE
-systemctl restart $SERVICE
-
-echo "==> done. service status:"
-systemctl is-active $SERVICE
+sleep 1
+if kill -0 $(cat $PIDFILE) 2>/dev/null; then
+  echo "==> running (pid $(cat $PIDFILE))"
+else
+  echo "error: failed to start"
+  exit 1
+fi
